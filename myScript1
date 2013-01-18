@@ -1,4 +1,63 @@
-Linux_scripts
-=============
+echo " Little scrit to reduce your work. Press akey to proceed" 
 
-It will have all the scripts that I wrote experimentally 
+break
+
+echo " Following tasks can be accomplished using this. Press a key to start the script " 
+
+break
+echo " --------------------------------" 
+echo "     1.       Change Password"
+echo " 	  2.       See the disk space"
+echo " 	  3.       Login to other box using ssh"
+echo " 	  4.       Show all Service running"
+echo " 	  5.       Show all ports opened"
+echo " 	  6.       Show all java apps running"
+echo " 	  7.       Facility to kill a  app"
+echo " 	  8.       Exit"
+
+echo " Enter the task number to perform "
+
+read option
+case "$option"
+
+"1")
+read User_name
+passwd $User_name 
+;;
+
+"2") 
+echo " You just want to see the disk Space, right !!" 
+df -k
+;;
+"3")
+echo " please enter the Host name you want to connect "
+read host_name
+echo "Enter Username to login"
+read login
+ssh -l $login $hostname 
+;;
+
+"4")
+echo " List of all running services " 
+;;
+service --status-all
+"5")
+
+netstat -tupln
+;;
+
+"6") 
+ps -aux | grep java
+;;
+"7")
+echo "You've Chose to kill an application , pleae enter the name of the application "
+read application_name
+
+killall -9 $application_name
+;;
+
+"8") 
+exit
+;;
+
+esac
