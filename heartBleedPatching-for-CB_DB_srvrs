@@ -1,0 +1,181 @@
+#!/bin/sh
+
+puppet agent --disable
+
+host_name=`uname -n`
+
+cp /etc/apt/sources.list /etc/apt/sources.list.orig
+
+#Check the OS version:
+Ubuntu10=`cat /etc/issue |grep "\."|grep "10."|wc -l`
+Ubuntu12=`cat /etc/issue |grep "\."|grep "12."|wc -l`
+Centos6=`cat /etc/issue |grep "\."|grep -i "Cent"|wc -l`
+
+if test $Ubuntu10 -eq 1
+then
+    cp -f ~/Ubuntu10.sources.list /etc/apt/sources.list	
+	chown root:root /etc/apt/sources.list	
+fi
+
+if test $Ubuntu12 -eq 1
+then
+    cp -f ~/Ubuntu12.sources.list /etc/apt/sources.list	
+	chown root:root /etc/apt/sources.list	
+fi
+
+if test $Centos6 -eq 1
+then
+    cp -f ~/Centos6.sources.list /etc/apt/sources.list	
+	chown root:root /etc/apt/sources.list	
+fi
+
+chattr +i /etc/apt/sources.list
+
+#Packages to hold back
+
+count_couch=`dpkg --list | grep -i couchbase | wc -l`
+count_mysql=`dpkg --list | grep -i mysql| wc -l`
+
+if test $count_couch -ge 1
+then
+    pckg_name=`dpkg --list | grep couchbase| awk '{print $2}'`	
+	echo $pckg_name hold | dpkg --set-selections
+	
+fi
+
+if test $count_mysql -ge 1
+then
+    pckg_name=`dpkg --list | grep mysql| awk '{print $2}'`	
+	echo $pckg_name hold | dpkg --set-selections
+	
+fi
+
+#verify if held back:
+dpkg --get-selections | egrep -i "couchbase-server | mysql"
+
+#do the dry run 
+apt-get clean && apt-get update
+
+if test $count_couch -ge 1
+then
+    groupadd whoopsie && sudo apt-get -o Dir::Etc::sourcelist="/etc/apt/sources.list" upgrade  -s --exclude=couch* > ./dryrun.`hostname --fqdn`
+	
+fi
+
+if test $count_mysql -ge 1
+then
+    groupadd whoopsie && sudo apt-get -o Dir::Etc::sourcelist="/etc/apt/sources.list" upgrade -s --exclude=mysql* > ./dryrun.`hostname --fqdn`
+	
+fi
+
+#groupadd whoopsie && sudo apt-get -o Dir::Etc::sourcelist="/etc/apt/sources.list" upgrade -s > ./dryrun.`hostname --fqdn`
+
+#output dry run to verify 
+cat dryrun.`hostname --fqdn`
+
+#Ask user to verify and if ok to proceed:
+ok_to_proceed=0
+
+while true; do
+    read -p "Please verify the Dry Run report above! Do you want to patch the server (y/n)?" yn
+    case $yn in
+        [Yy]* ) ok_to_proceed=1;;
+        [Nn]* ) exit;;
+        * ) echo "Please answer yes or no.";;
+    esac
+done
+
+if test $ok_to_proceed -eq 1
+then
+
+	#For CB servers:
+	if test $count_couch -ge 1
+	then
+
+		#Get the password of the CB cluster
+		PSWD=`/opt/couchbase/bin/erl -noinput -eval 'case file:read_file("/opt/couchbase/var/lib/couchbase/config/config.dat") of {ok, B}  -> io:format("~p~n",[binary_to_term(B)]) end.' -run init stop | grep cred|grep pass|cut -f4 -d,|cut -f2 -d\"`
+
+		# Get list of servers in the cluster
+		host_ip=`ifconfig |grep "10."|grep inet|awk  '{print $2}'|cut -f2 -d:`
+		host_other=`/opt/couchbase/bin/couchbase-cli server-list -c $host_name:8091 -u Administrator -p $PSWD |grep -v $host_ip |grep -i "healthy active" -m1|awk '{print $1}'|cut -f2 -d@`
+
+
+		# Failover the CB server from the cluster
+		/opt/couchbase/bin/couchbase-cli failover -c $host_other:8091 -u Administrator -p $PSWD --server-failover=$host_name:8091
+
+		#Patch the server
+		apt-get -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' dist-upgrade  --exclude=couch* | tee -a /var/log/os-patching-`date +%F_%T`.log
+
+	#CB server-end
+	fi
+
+	#For MySQL servers:
+	if test $count_mysql -ge 1
+	then
+		#get the instances of mysql on the server
+		ps -ef|grep "[s]ocket\=" |awk '{print $(NF - 1) " "}'|cut -d"=" -f2>/home/pmahajan/sock_list1.txt
+		#for each instance on the server
+		for line in `cat /home/pmahajan/sock_list1.txt`;do
+
+			#get the port number
+			port_num1=`ps -ef |grep $line |grep -v grep| awk '{print $NF " "}'|cut -d"=" -f2`
+        			port_num=`echo $port_num1|sed 's/^[ \t]*//;s/[ \t]*$//'`
+
+			#get the password that works for that instance
+			mysql -uroot -pq1y\^i8o\|\=l -S$line -e"exit" > /dev/null 2>&1
+
+        			if [ $? -eq 0 ]
+        			then
+
+                  			PSWD=q1y\^i8o\|\=l
+
+        			else
+                			mysql -uroot -pv7D\|sLz\=\$\~\:p -S$line -e"exit" > /dev/null 2>&1
+                			if [ $? -eq 0 ]
+                			then
+                        			PSWD=v7D\|sLz\=\$\~\:p
+
+                			else
+                        			mysql -uroot -prowarcraft3 -S$line -e"exit" > /dev/null 2>&1;
+
+                        			if [ $? -eq 0 ]
+                        			then
+
+                                  				PSWD=rowarcraft3
+                        			else
+                                 				mysql -uroot -S$line -e"exit" > /dev/null 2>&1
+                                 				if [ $? -eq 0 ]
+                                 				then
+                                         				PSWD=''
+                                 				fi
+                        			fi
+                			fi
+
+        			fi
+			
+			#stop slave
+			mysql -uroot -p$PSWD -S$line  -e"Stop Slave;"
+			#stop instance
+			echo "Stopping mysql-$port_num"
+			/etc/init.d/mysql-$port_num stop
+		
+		#done for each instance
+		done
+
+		#Patch the mysql server
+		apt-get -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' dist-upgrade  --exclude=mysql* | tee -a /var/log/os-patching-`date +%F_%T`.log
+
+	#mysql-end 
+	fi
+
+	sed -i.orig -e s/"noapic"/" "/g /etc/default/grub
+
+	sed  -i 's/in_submenu=false/in_submenu=true/g;s/if \$in_submenu; then/if ! \$in_submenu; then/g' /etc/grub.d/10_linux
+
+	update-grub
+	echo " "
+	echo " "
+	echo" Kernel upgraded! Please reboot the server! "
+fi
+
+
