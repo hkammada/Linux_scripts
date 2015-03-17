@@ -18,45 +18,48 @@ echo " 	  8.       Exit"
 echo " Enter the task number to perform "
 
 read option
-case "$option"
+case "$option" in
 
-"1")
+'1')
 read User_name
 passwd $User_name 
 ;;
 
-"2") 
-echo " You just want to see the disk Space, right !!" 
-df -k
+'2') 
+echo "You just want to see the disk Space, right !!" 
+break
+df -h
 ;;
-"3")
+
+'3')
 echo " please enter the Host name you want to connect "
 read host_name
 echo "Enter Username to login"
 read login
-ssh -l $login $hostname 
+ssh -l $login $host_name 
 ;;
 
-"4")
+'4')
 echo " List of all running services " 
-;;
 service --status-all
-"5")
-
-netstat -tupln
 ;;
 
-"6") 
+'5')
+sudo netstat -tupln
+;;
+
+'6') 
 ps -aux | grep java
 ;;
-"7")
+
+'7')
 echo "You've Chose to kill an application , pleae enter the name of the application "
 read application_name
 
 killall -9 $application_name
 ;;
 
-"8") 
+'8') 
 exit
 ;;
 
